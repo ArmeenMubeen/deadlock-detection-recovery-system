@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DeadlockOS — Detection & Recovery System</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+:root{--bg:#0a0c10;--surface:#111418;--surface2:#181c23;--surface3:#1e2330;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);--text:#e8eaf0;--text2:#8890a0;--text3:#4a5260;--purple:#7c6cf8;--purple-light:#a89cff;--purple-dim:rgba(124,108,248,0.15);--teal:#2dd4a0;--teal-dim:rgba(45,212,160,0.12);--red:#f05050;--red-dim:rgba(240,80,80,0.12);--amber:#f0a840;--amber-dim:rgba(240,168,64,0.12);--green:#50d080;--green-dim:rgba(80,208,128,0.12);--r:10px;--rs:6px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden}
+::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);background:rgba(10,12,16,0.95);position:sticky;top:0;z-index:100;backdrop-filter:blur(10px)}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-icon{width:28px;height:28px;border-radius:7px;background:var(--purple-dim);border:1px solid var(--purple);display:flex;align-items:center;justify-content:center}
+.logo-icon svg{width:14px;height:14px;fill:none;stroke:var(--purple);stroke-width:1.8;stroke-linecap:round}
+.logo-name{font-size:14px;font-weight:600;letter-spacing:-.3px}
+.logo-name span{color:var(--purple)}
+.htabs{display:flex;gap:2px;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:3px}
+.htab{padding:5px 13px;border-radius:5px;font-size:12px;font-weight:500;cursor:pointer;color:var(--text2);border:none;background:none;transition:.15s;font-family:'Space Grotesk',sans-serif}
+.htab.on{background:var(--surface3);color:var(--text);border:1px solid var(--border2)}
+.hstatus{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2)}
+.sdot{width:7px;height:7px;border-radius:50%;background:var(--text3);transition:.3s}
+.sdot.safe{background:var(--green);box-shadow:0 0 6px var(--green)}
+.sdot.dead{background:var(--red);box-shadow:0 0 6px var(--red);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+.app{display:grid;grid-template-columns:240px 1fr 270px;height:calc(100vh - 53px)}
+.lpanel{border-right:1px solid var(--border);background:var(--surface);overflow-y:auto;display:flex;flex-direction:column}
+.rpanel{border-left:1px solid var(--border);background:var(--surface);overflow-y:auto;display:flex;flex-direction:column}
+.psec{padding:12px 14px;border-bottom:1px solid var(--border)}
+.plabel{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);margin-bottom:9px}
+
+input,select{width:100%;padding:6px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:12px;font-family:'Space Grotesk',sans-serif;outline:none;transition:.15s}
+input:focus,select:focus{border-color:var(--purple);box-shadow:0 0 0 2px var(--purple-dim)}
+input::placeholder{color:var(--text3)}
+select option{background:var(--surface2)}
+.frow{display:flex;gap:6px;margin-bottom:7px}
+.fgrp{margin-bottom:8px}
+
+.btn{padding:6px 11px;border-radius:var(--rs);font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-family:'Space Grotesk',sans-serif;transition:.15s;width:100%;text-align:center}
+.btn:hover{border-color:var(--border2);color:var(--text)}
+.btn:active{transform:scale(.98)}
+.btn-p{background:var(--purple-dim);border-color:var(--purple);color:var(--purple-light)}.btn-p:hover{background:rgba(124,108,248,.25)}
+.btn-t{background:var(--teal-dim);border-color:var(--teal);color:var(--teal)}.btn-t:hover{background:rgba(45,212,160,.2)}
+.btn-r{background:var(--red-dim);border-color:var(--red);color:var(--red)}.btn-r:hover{background:rgba(240,80,80,.2)}
+.btn-a{background:var(--amber-dim);border-color:var(--amber);color:var(--amber)}.btn-a:hover{background:rgba(240,168,64,.2)}
+.btn-sm{padding:4px 9px;font-size:11px;width:auto}
+.bgrp{display:flex;gap:6px}
+
+.nlist{display:flex;flex-direction:column;gap:4px}
+.nitem{display:flex;align-items:center;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);font-size:12px;transition:.15s}
+.nitem:hover{border-color:var(--border2)}
+.nitem.dl{border-color:var(--red);background:var(--red-dim)}
+.nbadge{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;margin-right:6px}
+.nbp{background:var(--purple-dim);color:var(--purple-light)}
+.nbr{background:var(--teal-dim);color:var(--teal);border-radius:3px}
+.nname{font-weight:500;flex:1}
+.ninfo{color:var(--text3);font-size:10px;margin-right:5px}
+.delbtn{width:18px;height:18px;display:flex;align-items:center;justify-content:center;border-radius:3px;cursor:pointer;color:var(--text3);border:none;background:none;font-size:13px;transition:.15s;flex-shrink:0}
+.delbtn:hover{color:var(--red);background:var(--red-dim)}
+
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{padding:4px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;font-size:11px;cursor:pointer;color:var(--text2);transition:.15s}
+.chip:hover{border-color:var(--purple);color:var(--purple-light);background:var(--purple-dim)}
+
+/* MAIN */
+main{position:relative;overflow:hidden;background:var(--bg)}
+.page{display:none;position:absolute;inset:0;overflow:hidden}
+.page.on{display:flex;flex-direction:column}
+
+/* CANVAS */
+.cvs-area{flex:1;position:relative;overflow:hidden}
+.cvs-bg{position:absolute;inset:0;background-image:radial-gradient(circle,rgba(255,255,255,0.022) 1px,transparent 1px);background-size:26px 26px}
+#rag-svg{width:100%;height:100%;position:relative;z-index:1}
+.ctbar{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:5px;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:4px;z-index:5}
+.ctbar .btn{width:auto;padding:5px 11px;font-size:11px}
+.dbanner{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:var(--red-dim);border:1px solid var(--red);border-radius:7px;padding:9px 18px;font-size:12px;color:var(--red);font-weight:500;display:none;align-items:center;gap:9px;z-index:10;white-space:nowrap}
+.sbanner{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:var(--green-dim);border:1px solid var(--green);border-radius:7px;padding:9px 18px;font-size:12px;color:var(--green);font-weight:500;display:none;align-items:center;gap:9px;z-index:10}
+.ehint{position:absolute;bottom:50px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--amber);border-radius:5px;padding:7px 13px;font-size:11px;color:var(--amber);display:none;z-index:10;white-space:nowrap}
+.legend{position:absolute;bottom:14px;right:14px;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:10px 12px;font-size:11px;color:var(--text2);z-index:5}
+.legend-row{display:flex;align-items:center;gap:7px;margin-bottom:5px}
+.legend-row:last-child{margin-bottom:0}
+.leg-line{width:24px;height:2px}
+
+/* LOG */
+.larea{flex:1;overflow-y:auto;padding:10px}
+.lentry{padding:7px 9px;border-radius:var(--rs);margin-bottom:5px;font-size:11px;font-family:'JetBrains Mono',monospace;border-left:2px solid var(--border);line-height:1.6;animation:fi .25s ease}
+@keyframes fi{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+.li{border-left-color:var(--purple);background:var(--purple-dim)}
+.ls{border-left-color:var(--green);background:var(--green-dim)}
+.ld{border-left-color:var(--red);background:var(--red-dim)}
+.lw{border-left-color:var(--amber);background:var(--amber-dim)}
+.ln{border-left-color:var(--border2);background:var(--surface2)}
+.lt{color:var(--text3);font-size:10px}
+
+/* BANKER */
+.bview{padding:18px;overflow-y:auto;height:100%}
+.stitle{font-size:15px;font-weight:600;margin-bottom:3px}
+.ssub{font-size:12px;color:var(--text2);margin-bottom:16px}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.mcard{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px}
+.mtitle{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:9px}
+.mtbl{width:100%;border-collapse:collapse;font-size:11px}
+.mtbl th{padding:4px 6px;text-align:center;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)}
+.mtbl td{padding:3px 3px;text-align:center}
+.mtbl td input{width:40px;padding:3px 5px;text-align:center;font-size:11px}
+.arow{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.ainp{display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:5px 9px}
+.albl{font-size:11px;color:var(--text3);font-weight:500}
+.ainp input{width:46px}
+.sresult{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-top:12px}
+.sseq{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}
+.snode{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:500;background:var(--purple-dim);border:1px solid var(--purple);color:var(--purple-light)}
+.sarrow{color:var(--text3);font-size:11px}
+.slog{margin-top:10px;display:flex;flex-direction:column;gap:4px}
+.sitem{padding:6px 9px;border-radius:var(--rs);font-size:11px;font-family:'JetBrains Mono',monospace;border-left:2px solid var(--border2);background:var(--surface3);animation:fi .2s ease;color:var(--text2)}
+.sitem.ok{border-left-color:var(--green);color:var(--teal)}
+.sitem.err{border-left-color:var(--red);color:var(--red)}
+
+/* RECOVERY */
+.rview{padding:18px;overflow-y:auto;height:100%}
+.rmethods{display:grid;gap:10px;margin-bottom:14px}
+.meth{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:14px;cursor:pointer;transition:.2s}
+.meth:hover{border-color:var(--border2);background:var(--surface3)}
+.meth.sel{border-color:var(--purple);background:var(--purple-dim)}
+.mico{width:32px;height:32px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:16px;margin-bottom:8px}
+.mname{font-size:13px;font-weight:600;margin-bottom:3px}
+.mdesc{font-size:11px;color:var(--text2);line-height:1.5}
+.vcard{background:var(--surface2);border:1px solid var(--amber);border-radius:var(--r);padding:12px;margin-bottom:12px}
+.vtitle{font-size:11px;font-weight:600;color:var(--amber);margin-bottom:7px}
+.vrow{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)}
+.vrow:last-child{border-bottom:none}
+.vname{font-size:12px;font-weight:500}
+.vscore{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--text2)}
+.vbadge{font-size:10px;padding:2px 6px;border-radius:3px;font-weight:600}
+
+/* LEARN */
+.lview{padding:18px;overflow-y:auto;height:100%}
+.lcards{display:grid;gap:12px}
+.lcard{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:14px}
+.lctitle{font-size:13px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:7px}
+.lcbody{font-size:12px;color:var(--text2);line-height:1.7}
+.coff{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}
+.coffitem{background:var(--surface3);border:1px solid var(--border);border-radius:var(--rs);padding:9px}
+.coffnum{font-size:9px;font-weight:700;color:var(--purple);margin-bottom:2px}
+.coffname{font-size:11px;font-weight:500;margin-bottom:2px}
+.coffdesc{font-size:10px;color:var(--text2)}
+.acmp{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:9px}
+.acol{background:var(--surface3);border:1px solid var(--border);border-radius:var(--rs);padding:9px}
+.acolt{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px}
+.acol ul{padding-left:13px;font-size:10px;color:var(--text2);line-height:1.8}
+.tag{display:inline-block;font-size:9px;padding:2px 6px;border-radius:3px;font-weight:600;margin-right:3px}
+.tagp{background:var(--purple-dim);color:var(--purple-light)}
+.tagr{background:var(--teal-dim);color:var(--teal)}
+
+/* MODAL */
+.moverlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.moverlay.on{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:18px;width:300px}
+.modal-t{font-size:14px;font-weight:600;margin-bottom:3px}
+.modal-s{font-size:12px;color:var(--text2);margin-bottom:14px}
+.modal-a{display:flex;gap:7px;margin-top:14px}
+
+.tooltip{position:fixed;background:var(--surface);border:1px solid var(--border2);border-radius:var(--rs);padding:7px 10px;font-size:11px;pointer-events:none;z-index:999;display:none;max-width:180px;line-height:1.5;color:var(--text2)}
+</style>
+</head>
+<body>
+<div class="tooltip" id="tt"></div>
+<div class="moverlay" id="emodal">
+  <div class="modal">
+    <p class="modal-t">Add edge</p>
+    <p class="modal-s">Select the edge type for this connection</p>
+    <div class="fgrp">
+      <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:5px">Edge type</label>
+      <select id="m-etype">
+        <option value="assign">Assignment — R gives instance to P</option>
+        <option value="request">Request — P is waiting for R</option>
+      </select>
+    </div>
+    <div id="m-einfo" style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.5"></div>
+    <div class="modal-a">
+      <button class="btn btn-p" style="flex:1" id="m-confirm">Confirm</button>
+      <button class="btn" style="flex:0 0 auto" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<header class="header">
+  <div class="logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>
+    </div>
+    <span class="logo-name">Deadlock<span>OS</span></span>
+  </div>
+  <div class="htabs">
+    <button class="htab on" onclick="showPage('rag',this)">RAG Visualizer</button>
+    <button class="htab" onclick="showPage('bankers',this)">Banker's Algorithm</button>
+    <button class="htab" onclick="showPage('recovery',this)">Recovery</button>
+    <button class="htab" onclick="showPage('learn',this)">Learn</button>
+    <button class="htab" onclick="showPage('howto',this)" style="color:var(--amber)">❓ How to Use</button>
+  </div>
+  <div class="hstatus"><div class="sdot" id="sdot"></div><span id="stxt">Ready</span></div>
+</header>
+
+<div class="app">
+<!-- LEFT PANEL -->
+<div class="lpanel">
+  <div class="psec">
+    <div class="plabel">Quick scenarios</div>
+    <div class="chips">
+      <span class="chip" onclick="loadScene('dl3')">3-process deadlock</span>
+      <span class="chip" onclick="loadScene('dining')">Dining philosophers</span>
+      <span class="chip" onclick="loadScene('safe')">Safe state</span>
+      <span class="chip" onclick="loadScene('clear')">Clear all</span>
+    </div>
+  </div>
+  <div class="psec">
+    <div class="plabel">Add process</div>
+    <div class="fgrp"><input id="pname" placeholder="Process name (P1)" maxlength="6"/></div>
+    <button class="btn btn-p" onclick="addProc()">+ Add process</button>
+  </div>
+  <div class="psec">
+    <div class="plabel">Add resource</div>
+    <div class="fgrp"><input id="rname" placeholder="Resource name (R1)" maxlength="6"/></div>
+    <div class="frow">
+      <input type="number" id="rinst" placeholder="Instances" min="1" max="9" value="1" style="width:80px"/>
+      <button class="btn btn-t" style="flex:1" onclick="addRes()">+ Add resource</button>
+    </div>
+  </div>
+  <div class="psec">
+    <div class="plabel">Add edge</div>
+    <button class="btn btn-a" id="emb" onclick="toggleEdge()" style="margin-bottom:7px">Click nodes on canvas</button>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:7px">Manual entry:</div>
+    <select id="etype" style="margin-bottom:6px">
+      <option value="assign">Assignment (R → P)</option>
+      <option value="request">Request (P → R)</option>
+    </select>
+    <div class="frow" style="margin-bottom:6px">
+      <input id="efrom" placeholder="From (R1)"/>
+      <input id="eto" placeholder="To (P1)"/>
+    </div>
+    <button class="btn btn-t" onclick="addEdgeManual()">Add edge</button>
+  </div>
+  <div class="psec" style="flex:1">
+    <div class="plabel">Graph nodes</div>
+    <div class="nlist" id="nlist"></div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<main>
+  <!-- RAG -->
+  <div class="page on" id="page-rag">
+    <div class="cvs-area">
+      <div class="cvs-bg"></div>
+      <svg id="rag-svg"></svg>
+      <div class="ctbar">
+        <button class="btn btn-sm btn-p" onclick="runDetect()">▶ Run detection</button>
+        <button class="btn btn-sm" onclick="buildWFG()">Wait-for graph</button>
+        <button class="btn btn-sm" onclick="resetSim()">Reset layout</button>
+        <button class="btn btn-sm btn-r" onclick="clearHL()">Clear highlights</button>
+      </div>
+      <div class="dbanner" id="dbanner"><span>⚠</span><span id="dmsg">Deadlock detected!</span></div>
+      <div class="sbanner" id="sbanner"><span>✓</span><span>Safe state — no deadlock found</span></div>
+      <div class="ehint" id="ehint">Edge mode active — click source, then target node</div>
+      <div class="legend">
+        <div class="legend-row"><div style="width:18px;height:18px;border-radius:50%;border:1.5px solid #7c6cf8;background:rgba(124,108,248,.15)"></div><span>Process</span></div>
+        <div class="legend-row"><div style="width:18px;height:18px;border-radius:4px;border:1.5px solid #2dd4a0;background:rgba(45,212,160,.12)"></div><span>Resource</span></div>
+        <div class="legend-row"><div class="leg-line" style="background:#2dd4a0"></div><span>Assignment (R→P)</span></div>
+        <div class="legend-row"><div class="leg-line" style="background:#7c6cf8;border-top:2px dashed #7c6cf8;height:0"></div><span>Request (P→R)</span></div>
+        <div class="legend-row"><div style="width:18px;height:18px;border-radius:50%;border:2px solid #f05050;background:rgba(240,80,80,.2)"></div><span>In cycle (deadlock)</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BANKER -->
+  <div class="page" id="page-bankers">
+    <div class="bview">
+      <div class="stitle">Banker's Algorithm</div>
+      <div class="ssub">Multi-instance deadlock avoidance — checks system safety before granting resource requests</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+        <div class="ainp"><span class="albl">Processes</span><input type="number" id="bp" value="5" min="2" max="8" style="width:44px" onchange="initB()"/></div>
+        <div class="ainp"><span class="albl">Resource types</span><input type="number" id="br" value="3" min="1" max="5" style="width:44px" onchange="initB()"/></div>
+        <button class="btn btn-sm btn-p" onclick="initB()">Rebuild</button>
+        <button class="btn btn-sm" onclick="loadBex()">Load example</button>
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:12px">
+        <div class="mtitle">Available resources</div>
+        <div class="arow" id="avrow"></div>
+      </div>
+      <div class="mgrid">
+        <div class="mcard"><div class="mtitle">Allocation (what each process holds)</div><table class="mtbl" id="atbl"></table></div>
+        <div class="mcard"><div class="mtitle">Maximum need (max ever needed)</div><table class="mtbl" id="mxtbl"></table></div>
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:12px">
+        <div class="mtitle">Need matrix (auto: Max − Allocation)</div>
+        <table class="mtbl" id="ntbl"></table>
+      </div>
+      <div class="bgrp" style="margin-bottom:12px">
+        <button class="btn btn-p" style="flex:1" onclick="runB()">Run safety algorithm</button>
+        <button class="btn btn-t" style="flex:1" onclick="stepB()">▶ Step through</button>
+      </div>
+      <div id="bres" style="display:none" class="sresult"></div>
+      <div id="b-rag-container" style="display:none;margin-top:14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px">
+        <div class="mtitle b-rag-title">RAG Snapshot — current system state</div>
+        <svg id="b-rag-svg" style="width:100%;height:210px;display:block"></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECOVERY -->
+  <div class="page" id="page-recovery">
+    <div class="rview">
+      <div class="stitle">Recovery Strategies</div>
+      <div class="ssub">Resolve the detected deadlock by choosing a strategy below</div>
+      <div id="rnomsg" style="padding:40px;text-align:center;color:var(--text3);font-size:13px;line-height:2">
+        <div style="font-size:28px;margin-bottom:10px">🔒</div>
+        No active deadlock detected.<br/>
+        <span style="font-size:11px">Go to <strong style="color:var(--purple)">RAG Visualizer</strong> → load a scenario → click <strong style="color:var(--purple)">▶ Run detection</strong> first.</span>
+      </div>
+      <div id="rcontent" style="display:none">
+
+        <!-- Victim info -->
+        <div class="vcard" id="vcard"></div>
+
+        <!-- Strategy selection with highlight -->
+        <div style="font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);margin-bottom:8px">Choose recovery strategy</div>
+        <div class="rmethods">
+          <div class="meth" id="m-terminate" onclick="selMeth('terminate')">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+              <div class="mico" style="background:var(--red-dim);margin-bottom:0">🔴</div>
+              <div>
+                <div class="mname">Process Termination</div>
+                <div style="font-size:9px;color:var(--red);font-weight:600;text-transform:uppercase;letter-spacing:.06em">Most aggressive</div>
+              </div>
+              <div id="badge-terminate" style="display:none;margin-left:auto;background:var(--purple);color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:20px;letter-spacing:.04em">SELECTED ✓</div>
+            </div>
+            <div class="mdesc">Kill the lowest-score victim process. All its held resources are released immediately, breaking the deadlock cycle. Simple but the process loses all its work.</div>
+          </div>
+          <div class="meth" id="m-preempt" onclick="selMeth('preempt')">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+              <div class="mico" style="background:var(--amber-dim);margin-bottom:0">🟡</div>
+              <div>
+                <div class="mname">Resource Preemption</div>
+                <div style="font-size:9px;color:var(--amber);font-weight:600;text-transform:uppercase;letter-spacing:.06em">Balanced approach</div>
+              </div>
+              <div id="badge-preempt" style="display:none;margin-left:auto;background:var(--purple);color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:20px;letter-spacing:.04em">SELECTED ✓</div>
+            </div>
+            <div class="mdesc">Forcibly take one resource from the victim process and free it. Victim is paused and re-queued. Lower cost than termination but risk of starvation.</div>
+          </div>
+          <div class="meth" id="m-rollback" onclick="selMeth('rollback')">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+              <div class="mico" style="background:var(--teal-dim);margin-bottom:0">🟢</div>
+              <div>
+                <div class="mname">Process Rollback</div>
+                <div style="font-size:9px;color:var(--teal);font-weight:600;text-transform:uppercase;letter-spacing:.06em">Least data loss</div>
+              </div>
+              <div id="badge-rollback" style="display:none;margin-left:auto;background:var(--purple);color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:20px;letter-spacing:.04em">SELECTED ✓</div>
+            </div>
+            <div class="mdesc">Revert the victim to its last saved checkpoint. All resources acquired after that checkpoint are released. Least work lost but requires OS checkpoint support.</div>
+          </div>
+        </div>
+
+        <button class="btn btn-p" onclick="applyRec()" id="applybtn" disabled style="margin-bottom:4px">▶ Apply Selected Strategy</button>
+        <div style="font-size:10px;color:var(--text3);text-align:center;margin-bottom:12px">Select a strategy above first, then click Apply</div>
+
+        <!-- Step log -->
+        <div id="reclog" style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px"></div>
+
+        <!-- Before & After RAGs — shown after applying -->
+        <div id="rec-rag-wrap" style="display:none">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <div style="flex:1;height:1px;background:var(--border)"></div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text3)">RAG Before & After Recovery</div>
+            <div style="flex:1;height:1px;background:var(--border)"></div>
+          </div>
+          <!-- Strategy applied badge -->
+          <div id="rec-strategy-badge" style="margin-bottom:12px;padding:10px 14px;border-radius:var(--r);border:1px solid var(--purple);background:var(--purple-dim);font-size:12px;font-weight:600;color:var(--purple-light);display:flex;align-items:center;gap:8px">
+            <span id="rec-badge-icon">🔴</span>
+            <span id="rec-badge-text">Strategy Applied</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div style="background:var(--red-dim);border:2px solid var(--red);border-radius:var(--r);padding:12px">
+              <div style="font-size:10px;font-weight:700;color:var(--red);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:5px">
+                <span>⚠</span> Before Recovery <span style="margin-left:auto;font-size:9px;color:var(--text3)">Deadlock active</span>
+              </div>
+              <svg id="rec-before-svg" style="width:100%;height:200px;display:block"></svg>
+            </div>
+            <div style="background:var(--green-dim);border:2px solid var(--green);border-radius:var(--r);padding:12px">
+              <div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:5px">
+                <span>✓</span> After Recovery <span style="margin-left:auto;font-size:9px;color:var(--text3)">Deadlock resolved</span>
+              </div>
+              <svg id="rec-after-svg" style="width:100%;height:200px;display:block"></svg>
+            </div>
+          </div>
+          <div id="rec-status-msg" style="margin-top:10px;padding:10px 14px;border-radius:var(--rs);font-size:12px;font-weight:500;text-align:center"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LEARN -->
+  <div class="page" id="page-learn">
+    <div class="lview">
+      <div class="lcards">
+        <div class="lcard">
+          <div class="lctitle" style="color:var(--red)">⚠ What is a deadlock?</div>
+          <div class="lcbody">A <strong style="color:var(--text)">deadlock</strong> occurs when a set of processes are permanently blocked — each waiting for a resource held by another process in the group. No process can proceed without external OS intervention. All four Coffman conditions must hold simultaneously:</div>
+          <div class="coff">
+            <div class="coffitem"><div class="coffnum">C1</div><div class="coffname">Mutual exclusion</div><div class="coffdesc">Only one process can hold a resource at a time</div></div>
+            <div class="coffitem"><div class="coffnum">C2</div><div class="coffname">Hold and wait</div><div class="coffdesc">A process holds resources while requesting more</div></div>
+            <div class="coffitem"><div class="coffnum">C3</div><div class="coffname">No preemption</div><div class="coffdesc">Resources cannot be forcibly taken away</div></div>
+            <div class="coffitem"><div class="coffnum">C4</div><div class="coffname">Circular wait</div><div class="coffdesc">P1→P2→P3→P1 — a cycle of waiting</div></div>
+          </div>
+        </div>
+        <div class="lcard">
+          <div class="lctitle" style="color:var(--purple)">📊 Resource Allocation Graph (RAG)</div>
+          <div class="lcbody">
+            <span class="tag tagp">P</span><strong style="color:var(--text)">Process nodes</strong> — circles. Represent running or waiting processes.<br/>
+            <span class="tag tagr">R</span><strong style="color:var(--text)">Resource nodes</strong> — squares with dots showing available instances.<br/><br/>
+            <span style="color:var(--teal)">▬ Assignment edge (R→P)</span> — resource is currently held by process<br/>
+            <span style="color:var(--purple)">- - Request edge (P→R)</span> — process is blocked waiting for resource<br/><br/>
+            <strong style="color:var(--text)">Single-instance:</strong> cycle in RAG = deadlock (necessary & sufficient)<br/>
+            <strong style="color:var(--text)">Multi-instance:</strong> cycle necessary but not sufficient — use Banker's
+          </div>
+        </div>
+        <div class="lcard">
+          <div class="lctitle" style="color:var(--teal)">🔍 Detection algorithms</div>
+          <div class="acmp">
+            <div class="acol"><div class="acolt" style="color:var(--purple)">DFS cycle detection</div><ul><li>Single-instance</li><li>DFS on RAG</li><li>Back-edge = cycle</li><li>O(V+E) time</li><li>Used in RAG tab</li></ul></div>
+            <div class="acol"><div class="acolt" style="color:var(--teal)">Wait-for graph</div><ul><li>Remove resource nodes</li><li>Direct P→P edges</li><li>Same DFS cycle check</li><li>Faster, simpler</li><li>Single-instance only</li></ul></div>
+            <div class="acol"><div class="acolt" style="color:var(--amber)">Banker's algorithm</div><ul><li>Multi-instance</li><li>Need≤Work check</li><li>O(n²×m) time</li><li>Avoidance strategy</li><li>Used in Banker's tab</li></ul></div>
+          </div>
+        </div>
+        <div class="lcard">
+          <div class="lctitle" style="color:var(--amber)">🔧 Recovery & victim selection</div>
+          <div class="lcbody">
+            <strong style="color:var(--red)">Termination</strong> — Kill process(es) in the deadlock cycle. Simple but work is lost. Can terminate all at once or one-by-one with re-detection.<br/><br/>
+            <strong style="color:var(--amber)">Preemption</strong> — Forcibly take a resource from a process. Process pauses and is re-queued. Risk of starvation if same process always chosen.<br/><br/>
+            <strong style="color:var(--teal)">Rollback</strong> — Revert process to a saved checkpoint. Least data loss. Requires OS to maintain checkpoints periodically.<br/><br/>
+            <strong style="color:var(--text)">Victim score</strong> = (resources held × 2) + pending requests − process priority. Lowest score = selected as victim (cheapest to disrupt).
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- HOW TO USE -->
+  <div class="page" id="page-howto">
+    <div class="lview" style="padding:24px 28px">
+      <div style="max-width:760px;margin:0 auto">
+        <div style="margin-bottom:24px">
+          <div style="font-size:22px;font-weight:700;margin-bottom:6px">❓ How to Use DeadlockOS</div>
+          <div style="font-size:13px;color:var(--text2);line-height:1.7">This is a complete step-by-step guide for anyone new to this system — even if you have never studied deadlocks before. Read through all the steps in order for the best experience.</div>
+        </div>
+
+        <!-- What is a Deadlock -->
+        <div class="lcard" style="margin-bottom:14px;border-color:var(--red);border-left:3px solid var(--red)">
+          <div class="lctitle" style="color:var(--red);font-size:14px">🔴 What is a Deadlock? (Start Here)</div>
+          <div class="lcbody" style="line-height:1.9">
+            Imagine 4 cars at a 4-way intersection — each car is waiting for the car in front to move, but no car can move because they are all blocking each other. That is a <strong style="color:var(--text)">deadlock</strong> in a computer system.<br/><br/>
+            In an OS, <strong style="color:var(--purple-light)">Processes</strong> (running programs) need <strong style="color:var(--teal)">Resources</strong> (CPU, memory, files, printers) to work. A deadlock happens when:<br/>
+            <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div style="background:var(--surface3);border-radius:var(--rs);padding:10px;border-left:2px solid var(--purple)"><strong style="color:var(--purple-light)">P1</strong> holds <strong style="color:var(--teal)">R1</strong> and needs <strong style="color:var(--teal)">R2</strong></div>
+              <div style="background:var(--surface3);border-radius:var(--rs);padding:10px;border-left:2px solid var(--purple)"><strong style="color:var(--purple-light)">P2</strong> holds <strong style="color:var(--teal)">R2</strong> and needs <strong style="color:var(--teal)">R1</strong></div>
+            </div>
+            <div style="margin-top:10px;padding:10px;background:var(--red-dim);border-radius:var(--rs);color:var(--red);font-size:12px">→ Neither process can ever proceed. The system is stuck forever. This is a deadlock.</div>
+          </div>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="lcard" style="margin-bottom:14px;border-left:3px solid var(--purple)">
+          <div class="lctitle" style="font-size:14px"><span style="background:var(--purple-dim);border:1px solid var(--purple);color:var(--purple-light);padding:2px 9px;border-radius:20px;font-size:12px;margin-right:8px">STEP 1</span> Load a Scenario or Build Your Own Graph</div>
+          <div class="lcbody" style="line-height:1.9">
+            <strong style="color:var(--text)">Option A — Quick Start (Recommended for beginners):</strong><br/>
+            Look at the <strong style="color:var(--purple-light)">left panel → Quick scenarios</strong>. Click one of these chips:<br/>
+            <div style="margin:10px 0;display:flex;flex-direction:column;gap:7px">
+              <div style="padding:8px 12px;background:var(--surface3);border-radius:var(--rs);font-size:12px"><span style="color:var(--purple-light);font-weight:600">3-process deadlock</span> — Best for beginners. Loads 3 processes + 3 resources in a classic circular deadlock (P1→R2→P2→R3→P3→R1→P1).</div>
+              <div style="padding:8px 12px;background:var(--surface3);border-radius:var(--rs);font-size:12px"><span style="color:var(--amber);font-weight:600">Dining philosophers</span> — 5 processes (philosophers) and 5 resources (forks) — a famous deadlock example from OS theory.</div>
+              <div style="padding:8px 12px;background:var(--surface3);border-radius:var(--rs);font-size:12px"><span style="color:var(--green);font-weight:600">Safe state</span> — Loads a scenario with NO deadlock, so you can see what a safe system looks like.</div>
+            </div>
+            <strong style="color:var(--text)">Option B — Build manually:</strong><br/>
+            In the left panel, use <em>Add process</em> and <em>Add resource</em> to create nodes. Then add edges by:<br/>
+            • Clicking <strong style="color:var(--amber)">Click nodes on canvas</strong> → click a source node → click a target node → choose edge type in the popup, OR<br/>
+            • Using the <em>Manual entry</em> boxes: type node names (e.g. R1, P1) and click Add edge.
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="lcard" style="margin-bottom:14px;border-left:3px solid var(--teal)">
+          <div class="lctitle" style="font-size:14px"><span style="background:var(--teal-dim);border:1px solid var(--teal);color:var(--teal);padding:2px 9px;border-radius:20px;font-size:12px;margin-right:8px">STEP 2</span> Understand the Graph (RAG Visualizer Tab)</div>
+          <div class="lcbody" style="line-height:1.9">
+            The canvas shows the <strong style="color:var(--text)">Resource Allocation Graph (RAG)</strong>. Here is how to read it:<br/>
+            <div style="margin:12px 0;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div style="padding:10px;background:var(--surface3);border-radius:var(--rs);border:1px solid var(--border)">
+                <div style="width:28px;height:28px;border-radius:50%;border:2px solid #7c6cf8;background:rgba(124,108,248,.15);display:flex;align-items:center;justify-content:center;font-size:10px;color:#a89cff;font-weight:700;margin-bottom:6px">P1</div>
+                <strong style="color:var(--purple-light)">Circle = Process</strong><br/>
+                <span style="font-size:11px">A running program that needs resources</span>
+              </div>
+              <div style="padding:10px;background:var(--surface3);border-radius:var(--rs);border:1px solid var(--border)">
+                <div style="width:28px;height:28px;border-radius:4px;border:2px solid #2dd4a0;background:rgba(45,212,160,.12);display:flex;align-items:center;justify-content:center;font-size:10px;color:#2dd4a0;font-weight:700;margin-bottom:6px">R1</div>
+                <strong style="color:var(--teal)">Square = Resource</strong><br/>
+                <span style="font-size:11px">A system resource (CPU, file, printer)</span>
+              </div>
+              <div style="padding:10px;background:var(--surface3);border-radius:var(--rs);border:1px solid var(--border)">
+                <div style="font-size:13px;color:var(--teal);margin-bottom:4px">R ——→ P</div>
+                <strong style="color:var(--teal)">Solid line = Assignment</strong><br/>
+                <span style="font-size:11px">Resource is currently HELD by process</span>
+              </div>
+              <div style="padding:10px;background:var(--surface3);border-radius:var(--rs);border:1px solid var(--border)">
+                <div style="font-size:13px;color:var(--purple-light);margin-bottom:4px">P - - → R</div>
+                <strong style="color:var(--purple-light)">Dashed line = Request</strong><br/>
+                <span style="font-size:11px">Process is WAITING for the resource</span>
+              </div>
+            </div>
+            <div style="padding:10px;background:var(--red-dim);border-radius:var(--rs);font-size:12px;color:var(--red)"><strong>Red nodes</strong> = nodes involved in the deadlock cycle (appears after detection)</div>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="lcard" style="margin-bottom:14px;border-left:3px solid var(--amber)">
+          <div class="lctitle" style="font-size:14px"><span style="background:var(--amber-dim);border:1px solid var(--amber);color:var(--amber);padding:2px 9px;border-radius:20px;font-size:12px;margin-right:8px">STEP 3</span> Run Deadlock Detection</div>
+          <div class="lcbody" style="line-height:1.9">
+            In the <strong style="color:var(--purple-light)">RAG Visualizer</strong> tab, click the <strong style="color:var(--purple-light)">▶ Run detection</strong> button at the top of the canvas.<br/><br/>
+            The system will run <strong style="color:var(--text)">DFS (Depth-First Search)</strong> on the graph to look for cycles.<br/><br/>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
+              <div style="padding:10px;background:var(--red-dim);border:1px solid var(--red);border-radius:var(--rs);font-size:12px">
+                <strong style="color:var(--red)">🔴 If DEADLOCK FOUND:</strong> A red banner appears at the bottom of the canvas. Deadlocked nodes turn red. The detection log on the right shows the full cycle chain (e.g. P1 → R2 → P2 → R3 → P3 → R1 → P1). The system automatically runs Banker's Algorithm and shows the result.
+              </div>
+              <div style="padding:10px;background:var(--green-dim);border:1px solid var(--green);border-radius:var(--rs);font-size:12px">
+                <strong style="color:var(--green)">✓ If NO DEADLOCK:</strong> A green banner appears confirming the system is in a safe state. No nodes turn red.
+              </div>
+            </div>
+            <div style="margin-top:10px;font-size:12px;color:var(--text2)">You can also click <strong style="color:var(--text)">Wait-for graph</strong> to see a simplified process-to-process waiting diagram in the log panel.</div>
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="lcard" style="margin-bottom:14px;border-left:3px solid var(--purple)">
+          <div class="lctitle" style="font-size:14px"><span style="background:var(--purple-dim);border:1px solid var(--purple);color:var(--purple-light);padding:2px 9px;border-radius:20px;font-size:12px;margin-right:8px">STEP 4</span> Check Banker's Algorithm Tab</div>
+          <div class="lcbody" style="line-height:1.9">
+            Click the <strong style="color:var(--purple-light)">Banker's Algorithm</strong> tab in the top navigation.<br/><br/>
+            <strong style="color:var(--text)">What is Banker's Algorithm?</strong><br/>
+            It is like a bank that only gives loans when it is sure it can still satisfy all customers. The OS only grants a resource request if the resulting state is "safe" — meaning all processes can still eventually finish.<br/><br/>
+            <strong style="color:var(--text)">What you will see here:</strong><br/>
+            • <strong style="color:var(--teal)">Allocation matrix</strong> — what resources each process currently holds<br/>
+            • <strong style="color:var(--amber)">Maximum matrix</strong> — the maximum resources each process might ever need<br/>
+            • <strong style="color:var(--purple-light)">Need matrix</strong> — computed automatically: Need = Maximum − Allocation<br/>
+            • <strong style="color:var(--text)">Available</strong> — how many of each resource are free right now<br/><br/>
+            If deadlock was detected in Step 3, the result is already shown automatically. Otherwise click <strong style="color:var(--purple-light)">Run safety algorithm</strong> to check the manually entered values. The system will show whether a <strong style="color:var(--green)">safe sequence</strong> exists or confirm an <strong style="color:var(--red)">unsafe state</strong>. Below the result you will also see the RAG snapshot.
+          </div>
+        </div>
+
+        <!-- Step 5 -->
+        <div class="lcard" style="margin-bottom:14px;border-left:3px solid var(--red)">
+          <div class="lctitle" style="font-size:14px"><span style="background:var(--red-dim);border:1px solid var(--red);color:var(--red);padding:2px 9px;border-radius:20px;font-size:12px;margin-right:8px">STEP 5</span> Apply Recovery (If Deadlock Was Found)</div>
+          <div class="lcbody" style="line-height:1.9">
+            Click the <strong style="color:var(--red)">Recovery</strong> tab. If deadlock was detected you will see the victim selection and three strategy cards.<br/><br/>
+            <strong style="color:var(--text)">What is a "victim"?</strong><br/>
+            The OS must choose a process to sacrifice to break the deadlock. It picks the one with the lowest cost score: <code style="background:var(--surface3);padding:2px 6px;border-radius:3px;font-size:11px">score = (resources held × 2) + pending requests − priority</code><br/><br/>
+            <strong style="color:var(--text)">Choose one of the 3 strategies:</strong><br/>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+              <div style="padding:10px 12px;background:var(--surface3);border-radius:var(--rs);border-left:3px solid var(--red)"><strong style="color:var(--red)">🔴 Process Termination</strong> — Kill the victim completely. All its resources are freed instantly. Best when you want the fastest fix. The process loses all progress.</div>
+              <div style="padding:10px 12px;background:var(--surface3);border-radius:var(--rs);border-left:3px solid var(--amber)"><strong style="color:var(--amber)">🟡 Resource Preemption</strong> — Forcibly take one resource from the victim. Victim is paused and put back in the waiting queue for that resource. Good for when the process has done a lot of work.</div>
+              <div style="padding:10px 12px;background:var(--surface3);border-radius:var(--rs);border-left:3px solid var(--teal)"><strong style="color:var(--teal)">🟢 Process Rollback</strong> — Roll the victim back to a saved checkpoint. All resources since that checkpoint are released. Least data loss but complex to implement.</div>
+            </div>
+            <div style="margin-top:12px;padding:10px;background:var(--purple-dim);border:1px solid var(--purple);border-radius:var(--rs);font-size:12px;color:var(--purple-light)">
+              After clicking <strong>Apply Selected Strategy</strong>, the system will:<br/>
+              1. Show the step-by-step recovery process in the log<br/>
+              2. Display the <strong>Before</strong> (deadlocked, red) and <strong>After</strong> (recovered, green) RAG graphs side by side<br/>
+              3. Confirm whether the system is now deadlock-free
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 6 -->
+        <div class="lcard" style="margin-bottom:14px;border-left:3px solid var(--green)">
+          <div class="lctitle" style="font-size:14px"><span style="background:var(--green-dim);border:1px solid var(--green);color:var(--green);padding:2px 9px;border-radius:20px;font-size:12px;margin-right:8px">STEP 6</span> Learn More in the Learn Tab</div>
+          <div class="lcbody" style="line-height:1.9">
+            Click the <strong style="color:var(--green)">Learn</strong> tab for theory cards covering:<br/>
+            • The 4 Coffman conditions for deadlock<br/>
+            • How RAG edges represent system state<br/>
+            • DFS vs Wait-for graph vs Banker's — when to use each<br/>
+            • How victim selection and recovery strategies work<br/><br/>
+            This is useful for understanding the concepts before or after running simulations.
+          </div>
+        </div>
+
+        <!-- Quick ref -->
+        <div class="lcard" style="border-color:var(--border2)">
+          <div class="lctitle" style="font-size:14px">⚡ Quick Reference — Full Workflow</div>
+          <div style="display:flex;flex-direction:column;gap:0">
+            <div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--purple-dim);border:1px solid var(--purple);color:var(--purple-light);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">1</div>
+              <div style="font-size:12px;color:var(--text2)"><strong style="color:var(--text)">Left panel</strong> → click <em>3-process deadlock</em> chip → graph appears on canvas</div>
+            </div>
+            <div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--purple-dim);border:1px solid var(--purple);color:var(--purple-light);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">2</div>
+              <div style="font-size:12px;color:var(--text2)"><strong style="color:var(--text)">RAG Visualizer tab</strong> → click <strong style="color:var(--purple-light)">▶ Run detection</strong> → red nodes appear, Banker's auto-runs</div>
+            </div>
+            <div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--purple-dim);border:1px solid var(--purple);color:var(--purple-light);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">3</div>
+              <div style="font-size:12px;color:var(--text2)"><strong style="color:var(--text)">Banker's tab</strong> → see safe/unsafe result + RAG snapshot automatically</div>
+            </div>
+            <div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--purple-dim);border:1px solid var(--purple);color:var(--purple-light);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">4</div>
+              <div style="font-size:12px;color:var(--text2)"><strong style="color:var(--text)">Recovery tab</strong> → select a strategy card → click Apply → see before/after RAG</div>
+            </div>
+            <div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--green-dim);border:1px solid var(--green);color:var(--green);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">✓</div>
+              <div style="font-size:12px;color:var(--text2)">System shows <strong style="color:var(--green)">recovered state</strong> — deadlock is resolved!</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- RIGHT PANEL LOG -->
+<div class="rpanel">
+  <div class="psec">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="plabel" style="margin-bottom:0">Detection log</div>
+      <button class="btn btn-sm" onclick="clearLog()" style="width:auto;padding:3px 7px;font-size:10px">Clear</button>
+    </div>
+  </div>
+  <div class="larea" id="larea">
+    <div class="lentry ln"><span class="lt">00:00:00</span><br/>System initialized. Load a scenario or add nodes to begin.</div>
+  </div>
+</div>
+</div>
+
+<script>
+// ─── STATE ───────────────────────────────────────────────────
+let S={procs:{},ress:{},assigns:{},reqs:{},edges:[],cycleNodes:[],cycleEdges:[],dlActive:false,dlPids:[]};
+let edgeMode=false,edgeSrc=null,selMethod=null,bStepIdx=0,bStepFull=[];
+let bP=5,bR=3,bAlloc=[],bMax=[],bAvail=[];
+
+// ─── D3 ───────────────────────────────────────────────────────
+let sim,svgSel,linkG,nodeG;
+const GW=()=>document.getElementById('rag-svg').clientWidth||700;
+const GH=()=>document.getElementById('rag-svg').clientHeight||500;
+
+function initD3(){
+  svgSel=d3.select('#rag-svg');
+  svgSel.selectAll('*').remove();
+  svgSel.append('defs').html(`
+    <marker id="arr-a" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1L9 5L1 9z" fill="#2dd4a0"/></marker>
+    <marker id="arr-q" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1L9 5L1 9z" fill="#7c6cf8"/></marker>
+    <marker id="arr-c" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1L9 5L1 9z" fill="#f05050"/></marker>
+    <filter id="gr"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  `);
+  linkG=svgSel.append('g');
+  nodeG=svgSel.append('g');
+  sim=d3.forceSimulation()
+    .force('link',d3.forceLink().id(d=>d.id).distance(120).strength(.6))
+    .force('charge',d3.forceManyBody().strength(-180))
+    .force('center',d3.forceCenter(GW()/2,GH()/2).strength(0.04))
+    .force('collision',d3.forceCollide(40))
+    .alphaDecay(0.04)
+    .on('tick',tick);
+  renderG();
+}
+
+function getNodes(){
+  let n=[];
+  Object.entries(S.procs).forEach(([id,p])=>n.push({id,type:'p',label:p.name,data:p}));
+  Object.entries(S.ress).forEach(([id,r])=>n.push({id,type:'r',label:r.name,data:r}));
+  return n;
+}
+function getLinks(){return S.edges.map(e=>({source:e.s,target:e.t,type:e.type}));}
+
+// Preserve node positions across renders so they don't jump around
+let nodePositions={};
+
+function renderG(){
+  if(!svgSel)return;
+  const nodes=getNodes(),links=getLinks();
+
+  // Save current positions before updating simulation
+  if(sim.nodes){
+    sim.nodes().forEach(n=>{
+      if(n.x!==undefined)nodePositions[n.id]={x:n.x,y:n.y};
+    });
+  }
+
+  // Restore saved positions for existing nodes; place new nodes near center
+  nodes.forEach(n=>{
+    if(nodePositions[n.id]){n.x=nodePositions[n.id].x;n.y=nodePositions[n.id].y;}
+    else{n.x=GW()/2+(Math.random()-.5)*120;n.y=GH()/2+(Math.random()-.5)*120;}
+  });
+
+  sim.nodes(nodes);
+  sim.force('link').links(links);
+
+  // Links
+  const link=linkG.selectAll('line').data(links,d=>{
+    const sid=typeof d.source==='object'?d.source.id:d.source;
+    const tid=typeof d.target==='object'?d.target.id:d.target;
+    return sid+'-'+tid+d.type;
+  });
+  link.exit().remove();
+  link.enter().append('line').merge(link)
+    .attr('stroke-width',1.8)
+    .attr('stroke',d=>{
+      const sid=typeof d.source==='object'?d.source.id:d.source;
+      const tid=typeof d.target==='object'?d.target.id:d.target;
+      if(S.cycleEdges.some(e=>e.s===sid&&e.t===tid))return'#f05050';
+      return d.type==='assign'?'#2dd4a0':'#7c6cf8';
+    })
+    .attr('stroke-dasharray',d=>d.type==='request'?'6,3':'none')
+    .attr('marker-end',d=>{
+      const sid=typeof d.source==='object'?d.source.id:d.source;
+      const tid=typeof d.target==='object'?d.target.id:d.target;
+      if(S.cycleEdges.some(e=>e.s===sid&&e.t===tid))return'url(#arr-c)';
+      return d.type==='assign'?'url(#arr-a)':'url(#arr-q)';
+    });
+
+  // Nodes
+  const node=nodeG.selectAll('g.nd').data(nodes,d=>d.id);
+  node.exit().remove();
+  const entered=node.enter().append('g').attr('class','nd').style('cursor','pointer')
+    .call(d3.drag()
+      .on('start',(ev,d)=>{if(!ev.active)sim.alphaTarget(.15).restart();d.fx=d.x;d.fy=d.y;})
+      .on('drag',(ev,d)=>{d.fx=ev.x;d.fy=ev.y;nodePositions[d.id]={x:ev.x,y:ev.y};})
+      .on('end',(ev,d)=>{if(!ev.active)sim.alphaTarget(0);d.fx=null;d.fy=null;}))
+    .on('click',(ev,d)=>handleNodeClick(ev,d))
+    .on('mouseover',(ev,d)=>showTT(ev,d))
+    .on('mouseout',hideTT);
+
+  entered.each(function(d){
+    const g=d3.select(this);
+    if(d.type==='p'){g.append('circle').attr('r',28);g.append('text').attr('text-anchor','middle').attr('dy','.35em').attr('font-size',12).attr('font-weight',500).attr('pointer-events','none');}
+    else{g.append('rect').attr('x',-24).attr('y',-24).attr('width',48).attr('height',48).attr('rx',6);g.append('text').attr('text-anchor','middle').attr('dy','.35em').attr('font-size',12).attr('font-weight',500).attr('pointer-events','none');g.append('g').attr('class','idots');}
+  });
+
+  nodeG.selectAll('g.nd').each(function(d){
+    const g=d3.select(this),ic=S.cycleNodes.includes(d.id);
+    if(d.type==='p'){
+      g.select('circle').attr('fill',ic?'rgba(240,80,80,.2)':'rgba(124,108,248,.15)').attr('stroke',ic?'#f05050':'#7c6cf8').attr('stroke-width',ic?2.5:1.5).attr('filter',ic?'url(#gr)':'none');
+      g.select('text').attr('fill',ic?'#f05050':'#a89cff').text(d.label);
+    }else{
+      const av=S.ress[d.id]?.available??0,tot=S.ress[d.id]?.instances??1;
+      g.select('rect').attr('fill',ic?'rgba(240,80,80,.2)':'rgba(45,212,160,.12)').attr('stroke',ic?'#f05050':'#2dd4a0').attr('stroke-width',ic?2.5:1.5).attr('filter',ic?'url(#gr)':'none');
+      g.select('text').attr('fill',ic?'#f05050':'#2dd4a0').text(d.label);
+      const dots=g.select('.idots');dots.selectAll('circle').remove();
+      for(let i=0;i<tot;i++)dots.append('circle').attr('r',4).attr('cx',(i-(tot-1)/2)*10).attr('cy',14).attr('fill',i<(tot-av)?'#f05050':'#2dd4a0').attr('opacity',.8);
+    }
+  });
+
+  // Only use low alpha so existing nodes barely move; new nodes settle gently
+  sim.alpha(0.08).restart();
+}
+
+function tick(){
+  if(!linkG||!nodeG)return;
+  linkG.selectAll('line').attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+  nodeG.selectAll('g.nd').attr('transform',d=>`translate(${d.x},${d.y})`);
+}
+
+// ─── GRAPH OPS ────────────────────────────────────────────────
+const gid=p=>p+'_'+Math.random().toString(36).substr(2,5);
+
+function addProc(){
+  const el=document.getElementById('pname');
+  const name=el.value.trim()||'P'+(Object.keys(S.procs).length+1);
+  const id=gid('p');
+  S.procs[id]={name,state:'running',priority:Math.floor(Math.random()*5)+1};
+  S.reqs[id]=[];el.value='';
+  log(`Process ${name} added`,'i');updateNL();renderG();
+}
+
+function addRes(){
+  const nel=document.getElementById('rname'),iel=document.getElementById('rinst');
+  const name=nel.value.trim()||'R'+(Object.keys(S.ress).length+1);
+  const inst=parseInt(iel.value)||1;
+  const id=gid('r');
+  S.ress[id]={name,instances:inst,available:inst};
+  S.assigns[id]=[];nel.value='';iel.value='1';
+  log(`Resource ${name} added (${inst} instance${inst>1?'s':''})`,'i');updateNL();renderG();
+}
+
+function findByName(n){
+  for(const [id,p] of Object.entries(S.procs))if(p.name.toLowerCase()===n.toLowerCase())return{id,type:'p'};
+  for(const [id,r] of Object.entries(S.ress))if(r.name.toLowerCase()===n.toLowerCase())return{id,type:'r'};
+  return null;
+}
+
+function addEdge(sId,tId,type){
+  if(!sId||!tId)return false;
+  const sP=!!S.procs[sId],sR=!!S.ress[sId],tP=!!S.procs[tId],tR=!!S.ress[tId];
+  if(type==='assign'){
+    if(!sR||!tP){log('Assignment must go Resource → Process','w');return false;}
+    if(S.ress[sId].available<=0){log(`${S.ress[sId].name} has no available instances`,'w');return false;}
+    S.assigns[sId]=S.assigns[sId]||[];
+    if(!S.assigns[sId].includes(tId))S.assigns[sId].push(tId);
+    S.ress[sId].available--;
+  }else{
+    if(!sP||!tR){log('Request must go Process → Resource','w');return false;}
+    S.reqs[sId]=S.reqs[sId]||[];
+    if(!S.reqs[sId].includes(tId))S.reqs[sId].push(tId);
+  }
+  if(!S.edges.find(e=>e.s===sId&&e.t===tId&&e.type===type))S.edges.push({s:sId,t:tId,type});
+  const sn=(S.procs[sId]||S.ress[sId])?.name,tn=(S.procs[tId]||S.ress[tId])?.name;
+  log(`Edge: ${sn} → ${tn} (${type})`,'i');updateNL();renderG();return true;
+}
+
+function addEdgeManual(){
+  const type=document.getElementById('etype').value;
+  const fn=findByName(document.getElementById('efrom').value.trim());
+  const tn=findByName(document.getElementById('eto').value.trim());
+  if(!fn||!tn){log('Node not found — check names','w');return;}
+  addEdge(fn.id,tn.id,type);
+  document.getElementById('efrom').value='';document.getElementById('eto').value='';
+}
+
+function delNode(id){
+  const name=(S.procs[id]||S.ress[id])?.name;
+  if(S.procs[id]){delete S.procs[id];delete S.reqs[id];for(const rid in S.assigns)S.assigns[rid]=S.assigns[rid].filter(p=>p!==id);}
+  else if(S.ress[id]){delete S.ress[id];delete S.assigns[id];}
+  S.edges=S.edges.filter(e=>e.s!==id&&e.t!==id);
+  S.cycleNodes=[];S.cycleEdges=[];S.dlActive=false;
+  log(`Removed ${name}`,'w');updateNL();renderG();updStatus();
+}
+
+// ─── DETECTION ────────────────────────────────────────────────
+function runDetect(){
+  clearHL(true);
+  log('──── DFS deadlock detection ────','n');
+  const visited=new Set(),rec=new Set(),cNodes=[],cEdges=[];
+  let found=false,trace=[];
+
+  function dfs(id,type){
+    visited.add(id);rec.add(id);
+    const name=(S.procs[id]||S.ress[id])?.name;
+    trace.push({msg:`Visit: ${name} (${type})`,cls:'n'});
+    const nbrs=type==='p'?(S.reqs[id]||[]).map(r=>({id:r,type:'r'})):(S.assigns[id]||[]).map(p=>({id:p,type:'p'}));
+    for(const nb of nbrs){
+      const nn=(S.procs[nb.id]||S.ress[nb.id])?.name;
+      if(!visited.has(nb.id)){if(dfs(nb.id,nb.type)){found=true;cNodes.push(id);cEdges.push({s:id,t:nb.id});return true;}}
+      else if(rec.has(nb.id)){trace.push({msg:`⚠ Cycle! ${name} → ${nn}`,cls:'d'});cNodes.push(nb.id,id);cEdges.push({s:id,t:nb.id});found=true;return true;}
+    }
+    rec.delete(id);return false;
+  }
+
+  for(const pid of Object.keys(S.procs)){if(!visited.has(pid))dfs(pid,'p');if(found)break;}
+
+  trace.forEach((t,i)=>setTimeout(()=>log(t.msg,t.cls),i*100));
+  const delay=trace.length*100+300;
+
+  if(found){
+    S.cycleNodes=[...new Set(cNodes)];S.cycleEdges=cEdges;S.dlActive=true;S.dlPids=S.cycleNodes.filter(id=>!!S.procs[id]);
+    const cn=S.cycleNodes.map(id=>(S.procs[id]||S.ress[id])?.name).join(' → ');
+    setTimeout(()=>{
+      log(`DEADLOCK — cycle: ${cn}`,'d');
+      showBanner('d',`Deadlock: ${cn}`);
+      updStatus('dead');
+      renderG();
+      updRecovery();
+      // Auto-run Banker's algo after deadlock detected
+      setTimeout(()=>{
+        log("Auto-running Banker's Algorithm to verify deadlock...",'w');
+        autoRunBankersFromRAG();
+      },600);
+    },delay);
+  }else{
+    S.dlActive=false;S.dlPids=[];
+    setTimeout(()=>{log('No cycle found — safe state ✓','s');showBanner('s');updStatus('safe');},delay);
+  }
+}
+
+function buildWFG(){
+  clearHL(true);log('──── Wait-for graph ────','n');
+  let wfEdges=[];
+  for(const pid of Object.keys(S.procs)){
+    for(const rid of (S.reqs[pid]||[])){
+      for(const holder of (S.assigns[rid]||[])){
+        if(holder!==pid){const pn=S.procs[pid]?.name,hn=S.procs[holder]?.name;wfEdges.push({from:pn,to:hn});log(`Wait-for: ${pn} → ${hn}`,'i');}
+      }
+    }
+  }
+  if(!wfEdges.length)log('No wait-for edges — no deadlock via wait-for graph','s');
+  else log(`${wfEdges.length} wait-for edges found — run DFS to check for cycles`,'w');
+}
+
+// ─── AUTO BANKER FROM RAG ────────────────────────────────────
+function autoRunBankersFromRAG(){
+  const pids=Object.keys(S.procs);
+  const rids=Object.keys(S.ress);
+  if(!pids.length||!rids.length){log("Banker's: not enough nodes",'w');return;}
+  const n=pids.length,m=rids.length;
+  const alloc=pids.map(pid=>rids.map(rid=>(S.assigns[rid]||[]).includes(pid)?1:0));
+  const maxM=pids.map((pid,i)=>rids.map((rid,j)=>alloc[i][j]+((S.reqs[pid]||[]).includes(rid)?1:0)));
+  const need=alloc.map((a,i)=>a.map((v,j)=>maxM[i][j]-v));
+  const avail=rids.map(rid=>S.ress[rid]?.available??0);
+  let work=[...avail],finish=Array(n).fill(false),seq=[],steps=[];let ch=true;
+  while(ch){ch=false;for(let i=0;i<n;i++){if(!finish[i]&&need[i].every((v,j)=>v<=work[j])){steps.push({p:pids[i],pname:S.procs[pids[i]].name,need:need[i].slice(),wb:work.slice()});for(let j=0;j<m;j++)work[j]+=alloc[i][j];finish[i]=true;seq.push(pids[i]);ch=true;}}}
+  const safe=finish.every(Boolean);
+  if(safe){document.getElementById('sbanner').querySelector('span:last-child').textContent=`Banker's: Safe sequence → ${seq.map(id=>S.procs[id]?.name).join(' → ')}`;document.getElementById('sbanner').style.display='flex';setTimeout(()=>document.getElementById('sbanner').style.display='none',6000);}
+  else{document.getElementById('dmsg').textContent=`Banker's confirms UNSAFE — deadlock unresolvable. Use Recovery tab.`;document.getElementById('dbanner').style.display='flex';setTimeout(()=>document.getElementById('dbanner').style.display='none',7000);}
+  log(`Banker's auto: ${safe?'SAFE seq='+seq.map(id=>S.procs[id]?.name).join('→'):'UNSAFE — use Recovery'}`  ,safe?'s':'d');
+  S._autoB={safe,seq,steps,pids,rids,alloc,maxM,need,avail,pnames:pids.map(id=>S.procs[id]?.name),rnames:rids.map(id=>S.ress[id]?.name)};
+  document.querySelectorAll('.htab').forEach(t=>{if(t.textContent.includes('Banker'))t.style.outline=`2px solid ${safe?'var(--green)':'var(--red)'}`;});
+}
+
+function showBankersAutoResult(){
+  const ab=S._autoB;if(!ab)return;
+  const res=document.getElementById('bres');res.style.display='block';
+  let h=`<div style="font-size:13px;font-weight:600;color:${ab.safe?'var(--green)':'var(--red)'};margin-bottom:8px;padding:8px 12px;background:${ab.safe?'var(--green-dim)':'var(--red-dim)'};border-radius:6px;border:1px solid ${ab.safe?'var(--green)':'var(--red)'}">${ab.safe?'✓ SAFE STATE — deadlock can be resolved':'✗ UNSAFE STATE — deadlock confirmed, recovery needed'}</div>`;
+  h+=`<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Derived from RAG: ${ab.pnames.length} processes × ${ab.rnames.length} resources</div>`;
+  if(ab.safe){h+='<div style="font-size:11px;color:var(--text3);margin-bottom:5px">Safe execution sequence:</div><div class="sseq" style="margin-bottom:12px">';ab.seq.forEach((pid,i)=>{h+=`<span class="snode">${ab.pnames[ab.pids.indexOf(pid)]}</span>`;if(i<ab.seq.length-1)h+='<span class="sarrow">→</span>';});h+='</div>';}
+  h+='<div class="slog">';
+  ab.steps.forEach((s,idx)=>{h+=`<div class="sitem ok">Step ${idx+1}: ${s.pname} — need[${s.need}] ≤ work[${s.wb}] → execute, release resources</div>`;});
+  if(!ab.safe)h+=`<div class="sitem err">No safe sequence — system deadlocked. Go to Recovery tab.</div>`;
+  h+='</div>';
+  res.innerHTML=h;
+  renderBankersRAG('b-rag-svg','b-rag-container',S.edges,S.cycleNodes,S.cycleEdges,'RAG Snapshot (from Detection)');
+}
+
+function renderBankersRAG(svgId,containerId,edges,cycleNodes,cycleEdges,title){
+  const container=document.getElementById(containerId);
+  if(!container)return;
+  container.style.display='block';
+  if(title){const t=container.querySelector('.b-rag-title');if(t)t.textContent=title;}
+  const svgEl=document.getElementById(svgId);if(!svgEl)return;
+  const allNodes=getNodes();
+  if(!allNodes.length){container.style.display='none';return;}
+  renderStaticRAG(svgId,allNodes,edges,cycleNodes,cycleEdges);
+}
+
+// ─── RECOVERY ────────────────────────────────────────────────
+function updRecovery(){
+  const nm=document.getElementById('rnomsg'),rc=document.getElementById('rcontent');
+  const wrap=document.getElementById('rec-rag-wrap');
+  // If recovery graphs are visible, keep showing content even if deadlock is resolved
+  const graphsShowing=wrap&&wrap.style.display==='block';
+  if(!S.dlActive&&!S.dlPids.length&&!graphsShowing){
+    nm.style.display='block';rc.style.display='none';return;
+  }
+  nm.style.display='none';rc.style.display='block';
+  if(!S.dlPids.length)return; // graphs already shown, no need to rebuild vcard
+  const scores={};
+  for(const pid of S.dlPids){
+    const held=Object.values(S.assigns).filter(h=>h.includes(pid)).length;
+    const wait=(S.reqs[pid]||[]).length,pri=S.procs[pid]?.priority||5;
+    scores[pid]=held*2+wait-pri;
+  }
+  const sorted=Object.entries(scores).sort((a,b)=>a[1]-b[1]);
+  let h='<div class="vtitle">Victim selection (score = held×2 + waiting − priority)</div>';
+  sorted.forEach(([pid,sc],i)=>{
+    const p=S.procs[pid];
+    h+=`<div class="vrow"><span class="nbadge nbp" style="margin-right:7px">${p.name[0]}</span><span class="vname">${p.name}</span><span class="vscore">score: ${sc}</span>${i===0?'<span class="vbadge" style="background:var(--red-dim);color:var(--red)">victim</span>':''}</div>`;
+  });
+  const vc=document.getElementById('vcard');vc.innerHTML=h;vc.dataset.victim=sorted[0]?.[0];
+}
+
+function selMeth(m){
+  selMethod=m;
+  document.querySelectorAll('.meth').forEach(c=>c.classList.remove('sel'));
+  document.getElementById(`m-${m}`).classList.add('sel');
+  document.getElementById('applybtn').disabled=false;
+  // Show SELECTED badge on chosen, hide others
+  ['terminate','preempt','rollback'].forEach(k=>{
+    document.getElementById(`badge-${k}`).style.display=(k===m)?'block':'none';
+  });
+}
+
+function applyRec(){
+  if(!selMethod)return;
+  const victim=document.getElementById('vcard').dataset.victim;
+  const vn=S.procs[victim]?.name;
+  if(!vn){log('Victim process not found — re-run detection','w');return;}
+  const rl=document.getElementById('reclog');
+  const addRL=(msg,cls)=>{const d=document.createElement('div');d.className=`sitem ${cls}`;d.textContent=msg;rl.appendChild(d);rl.scrollTop=rl.scrollHeight;};
+
+  // ── Snapshot BEFORE state (deep copies so deletions don't affect them) ──
+  const beforeEdges = S.edges.map(e=>({...e}));
+  const beforeCycleNodes = [...S.cycleNodes];
+  const beforeCycleEdges = [...S.cycleEdges];
+  // Snapshot all nodes BEFORE any deletions
+  const beforeNodes = [
+    ...Object.entries(S.procs).map(([id,p])=>({id,label:p.name,type:'p'})),
+    ...Object.entries(S.ress).map(([id,r])=>({id,label:r.name,type:'r'}))
+  ];
+
+  rl.innerHTML='';
+  addRL(`Strategy: ${selMethod==='terminate'?'Process Termination':selMethod==='preempt'?'Resource Preemption':'Process Rollback'} | Victim: ${vn}`,'ok');
+
+  if(selMethod==='terminate'){
+    addRL(`Step 1: Identified victim — ${vn} (lowest deadlock score)`,'ok');
+    const released=[];
+    for(const rid in S.assigns){
+      const before=S.assigns[rid].length;
+      S.assigns[rid]=S.assigns[rid].filter(p=>p!==victim);
+      const rel=before-S.assigns[rid].length;
+      if(rel>0){S.ress[rid].available+=rel;released.push(S.ress[rid].name);addRL(`Step 2: Released resource ${S.ress[rid].name} (available +${rel})`,'ok');}
+    }
+    delete S.reqs[victim];
+    S.edges=S.edges.filter(e=>e.s!==victim&&e.t!==victim);
+    delete S.procs[victim];
+    addRL(`Step 3: ${vn} terminated — removed from system`,'ok');
+    addRL(`Step 4: Resources freed: [${released.join(', ')||'none'}] — returned to available pool`,'ok');
+    log(`Recovery: terminated ${vn}`,'s');
+
+  }else if(selMethod==='preempt'){
+    const held=Object.entries(S.assigns).find(([rid,h])=>h.includes(victim));
+    if(held){
+      const [rid,h]=held;
+      addRL(`Step 1: Identified resource to preempt from ${vn}`,'ok');
+      S.assigns[rid]=h.filter(p=>p!==victim);
+      S.ress[rid].available++;
+      addRL(`Step 2: Preempted ${S.ress[rid].name} from ${vn} — available +1`,'ok');
+      S.reqs[victim]=S.reqs[victim]||[];
+      if(!S.reqs[victim].includes(rid))S.reqs[victim].push(rid);
+      S.edges=S.edges.filter(e=>!(e.s===rid&&e.t===victim&&e.type==='assign'));
+      if(!S.edges.find(e=>e.s===victim&&e.t===rid&&e.type==='request'))
+        S.edges.push({s:victim,t:rid,type:'request'});
+      addRL(`Step 3: Assignment edge (${S.ress[rid].name}→${vn}) removed`,'ok');
+      addRL(`Step 4: Request edge (${vn}→${S.ress[rid].name}) added — ${vn} re-queued`,'ok');
+      log(`Recovery: preempted resource from ${vn}`,'s');
+    }else{
+      addRL(`Step 1: ${vn} holds no resources — cannot preempt, try termination`,'err');
+      return;
+    }
+
+  }else{ // rollback
+    addRL(`Step 1: Selected ${vn} for rollback to last checkpoint`,'ok');
+    const released=[];
+    for(const rid in S.assigns){
+      if(S.assigns[rid].includes(victim)){
+        S.assigns[rid]=S.assigns[rid].filter(p=>p!==victim);
+        S.ress[rid].available++;
+        released.push(S.ress[rid].name);
+        addRL(`Step 2: Released ${S.ress[rid].name} (rollback — checkpoint restore)`,'ok');
+      }
+    }
+    S.reqs[victim]=[];
+    S.edges=S.edges.filter(e=>e.s!==victim&&e.t!==victim);
+    if(S.procs[victim])S.procs[victim].state='waiting';
+    addRL(`Step 3: ${vn} restored to checkpoint — all post-checkpoint resources released`,'ok');
+    addRL(`Step 4: ${vn} re-queued for scheduling — resources freed: [${released.join(', ')||'none'}]`,'ok');
+    log(`Recovery: rolled back ${vn}`,'s');
+  }
+
+  S.cycleNodes=[];S.cycleEdges=[];S.dlActive=false;S.dlPids=[];
+  updateNL();updStatus();
+
+  // ── Post-recovery: re-detect + render graphs ──
+  setTimeout(()=>{
+    addRL('─────────────────────────────','n');
+    addRL('Re-running deadlock detection on recovered state...','ok');
+
+    // Quick re-detection
+    const vis2=new Set(),rec2=new Set();let foundAgain=false;
+    function dfs2(id,type){
+      vis2.add(id);rec2.add(id);
+      const nbrs=type==='p'?(S.reqs[id]||[]).map(r=>({id:r,type:'r'})):(S.assigns[id]||[]).map(p=>({id:p,type:'p'}));
+      for(const nb of nbrs){
+        if(!vis2.has(nb.id)){if(dfs2(nb.id,nb.type)){foundAgain=true;return true;}}
+        else if(rec2.has(nb.id)){foundAgain=true;return true;}
+      }
+      rec2.delete(id);return false;
+    }
+    for(const pid of Object.keys(S.procs)){if(!vis2.has(pid))dfs2(pid,'p');if(foundAgain)break;}
+
+    // Status message
+    const statusEl=document.getElementById('rec-status-msg');
+    if(!foundAgain){
+      addRL('✓ Detection result: No deadlock found — system fully recovered!','ok');
+      if(statusEl){
+        statusEl.style.cssText='margin-top:10px;padding:12px 16px;border-radius:var(--rs);font-size:13px;font-weight:600;text-align:center;background:var(--green-dim);color:var(--green);border:1.5px solid var(--green)';
+        statusEl.innerHTML='✅ System Recovered Successfully — No deadlock in updated state';
+      }
+    }else{
+      addRL('⚠ Deadlock still detected — apply another recovery step','err');
+      if(statusEl){
+        statusEl.style.cssText='margin-top:10px;padding:12px 16px;border-radius:var(--rs);font-size:13px;font-weight:600;text-align:center;background:var(--amber-dim);color:var(--amber);border:1.5px solid var(--amber)';
+        statusEl.innerHTML='⚠ Deadlock still present — select a strategy and apply again';
+      }
+    }
+
+    // Strategy badge
+    const icons={terminate:'🔴',preempt:'🟡',rollback:'🟢'};
+    const labels={
+      terminate:`Process Termination — ${vn} was terminated, all held resources freed`,
+      preempt:`Resource Preemption — one resource forcibly taken from ${vn}, process re-queued`,
+      rollback:`Process Rollback — ${vn} rolled back to checkpoint, resources released`
+    };
+    const bi=document.getElementById('rec-badge-icon'),bt=document.getElementById('rec-badge-text');
+    if(bi)bi.textContent=icons[selMethod]||'🔵';
+    if(bt)bt.textContent=labels[selMethod]||'Strategy applied';
+
+    // Show the RAG wrap
+    const wrap=document.getElementById('rec-rag-wrap');
+    if(wrap){
+      wrap.style.display='block';
+      // Snapshot AFTER nodes (current live state after recovery)
+      const afterNodes=[
+        ...Object.entries(S.procs).map(([id,p])=>({id,label:p.name,type:'p'})),
+        ...Object.entries(S.ress).map(([id,r])=>({id,label:r.name,type:'r'}))
+      ];
+      const afterEdges=S.edges.map(e=>({...e}));
+      setTimeout(()=>{
+        renderStaticRAG('rec-before-svg',beforeNodes,beforeEdges,beforeCycleNodes,beforeCycleEdges);
+        renderStaticRAG('rec-after-svg',afterNodes,afterEdges,[],[]);
+      },100);
+    }
+
+    // Update main RAG canvas too
+    renderG();
+  },400);
+
+  setTimeout(()=>updRecovery(),900);
+}
+
+function renderStaticRAG(svgId, nodes, edges, cycleNodes, cycleEdges){
+  const svgEl=document.getElementById(svgId);
+  if(!svgEl)return;
+  // Wait for element to be visible/sized
+  const w=Math.max(svgEl.getBoundingClientRect().width||0, svgEl.clientWidth||0, 380);
+  const h=Math.max(svgEl.getBoundingClientRect().height||0, svgEl.clientHeight||0, 200);
+
+  if(!nodes||!nodes.length){
+    // Draw empty state
+    const bSvg=d3.select('#'+svgId);bSvg.selectAll('*').remove();
+    bSvg.append('text').attr('x',w/2).attr('y',h/2).attr('text-anchor','middle').attr('fill','#4a5260').attr('font-size',12).text('No nodes');
+    return;
+  }
+
+  const bSvg=d3.select('#'+svgId);
+  bSvg.selectAll('*').remove();
+
+  // Unique marker IDs per SVG to avoid conflicts
+  const mid=svgId.replace(/-/g,'_');
+  bSvg.append('defs').html(`
+    <marker id="${mid}_a" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1L9 5L1 9z" fill="#2dd4a0"/></marker>
+    <marker id="${mid}_q" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1L9 5L1 9z" fill="#7c6cf8"/></marker>
+    <marker id="${mid}_c" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1L9 5L1 9z" fill="#f05050"/></marker>
+  `);
+
+  const procs=nodes.filter(n=>n.type==='p');
+  const ress=nodes.filter(n=>n.type==='r');
+
+  // Layout: processes on top row, resources on bottom row
+  const margin=40;
+  const usableW=w-margin*2;
+  procs.forEach((n,i)=>{
+    n.bx=procs.length===1?w/2:margin+i*(usableW/(procs.length-1||1));
+    n.by=h*0.28;
+  });
+  ress.forEach((n,i)=>{
+    n.bx=ress.length===1?w/2:margin+i*(usableW/(ress.length-1||1));
+    n.by=h*0.72;
+  });
+
+  // Build position map
+  const posMap={};
+  nodes.forEach(n=>posMap[n.id]={x:n.bx,y:n.by});
+
+  // Draw edges
+  (edges||[]).forEach(lk=>{
+    const sid=lk.s||lk.source, tid=lk.t||lk.target;
+    const sidStr=typeof sid==='object'?sid.id:sid;
+    const tidStr=typeof tid==='object'?tid.id:tid;
+    const sp=posMap[sidStr], tp=posMap[tidStr];
+    if(!sp||!tp)return;
+    const isCycle=(cycleEdges||[]).some(e=>e.s===sidStr&&e.t===tidStr);
+    const color=isCycle?'#f05050':lk.type==='assign'?'#2dd4a0':'#7c6cf8';
+    const marker=isCycle?`url(#${mid}_c)`:lk.type==='assign'?`url(#${mid}_a)`:`url(#${mid}_q)`;
+    bSvg.append('line')
+      .attr('x1',sp.x).attr('y1',sp.y)
+      .attr('x2',tp.x).attr('y2',tp.y)
+      .attr('stroke',color)
+      .attr('stroke-width',isCycle?2.5:1.8)
+      .attr('stroke-dasharray',lk.type==='request'?'6,3':'none')
+      .attr('marker-end',marker)
+      .attr('opacity',0.9);
+  });
+
+  // Draw nodes
+  nodes.forEach(n=>{
+    const ic=(cycleNodes||[]).includes(n.id);
+    const g=bSvg.append('g').attr('transform',`translate(${n.bx},${n.by})`);
+    if(n.type==='p'){
+      // Glow ring for deadlocked nodes
+      if(ic){g.append('circle').attr('r',30).attr('fill','none').attr('stroke','#f05050').attr('stroke-width',1).attr('opacity',0.3);}
+      g.append('circle').attr('r',23)
+        .attr('fill',ic?'rgba(240,80,80,.3)':'rgba(124,108,248,.2)')
+        .attr('stroke',ic?'#f05050':'#7c6cf8')
+        .attr('stroke-width',ic?2.5:1.8);
+      g.append('text').attr('text-anchor','middle').attr('dy','.35em')
+        .attr('font-size',11).attr('fill',ic?'#f05050':'#a89cff')
+        .attr('font-weight',700).attr('font-family','Space Grotesk,sans-serif')
+        .text(n.label);
+    }else{
+      if(ic){g.append('rect').attr('x',-28).attr('y',-28).attr('width',56).attr('height',56).attr('rx',7).attr('fill','none').attr('stroke','#f05050').attr('stroke-width',1).attr('opacity',0.3);}
+      g.append('rect').attr('x',-21).attr('y',-21).attr('width',42).attr('height',42).attr('rx',6)
+        .attr('fill',ic?'rgba(240,80,80,.3)':'rgba(45,212,160,.15)')
+        .attr('stroke',ic?'#f05050':'#2dd4a0')
+        .attr('stroke-width',ic?2.5:1.8);
+      g.append('text').attr('text-anchor','middle').attr('dy','.35em')
+        .attr('font-size',11).attr('fill',ic?'#f05050':'#2dd4a0')
+        .attr('font-weight',700).attr('font-family','Space Grotesk,sans-serif')
+        .text(n.label);
+    }
+  });
+}
+
+// ─── BANKER'S ────────────────────────────────────────────────
+function initB(){
+  bP=parseInt(document.getElementById('bp').value)||5;
+  bR=parseInt(document.getElementById('br').value)||3;
+  bAlloc=Array.from({length:bP},()=>Array(bR).fill(0));
+  bMax=Array.from({length:bP},()=>Array(bR).fill(0));
+  bAvail=Array(bR).fill(0);
+  renderBTbls();
+}
+function loadBex(){
+  document.getElementById('bp').value=5;document.getElementById('br').value=3;
+  bP=5;bR=3;
+  bAlloc=[[0,1,0],[2,0,0],[3,0,2],[2,1,1],[0,0,2]];
+  bMax=[[7,5,3],[3,2,2],[9,0,2],[2,2,2],[4,3,3]];
+  bAvail=[3,3,2];
+  renderBTbls();log("Banker's example loaded (5P × 3R)",'i');
+}
+function renderBTbls(){
+  const rl=Array.from({length:bR},(_,i)=>String.fromCharCode(65+i));
+  const hdr='<tr><th>P</th>'+rl.map(r=>`<th>${r}</th>`).join('')+'</tr>';
+  document.getElementById('avrow').innerHTML=rl.map((r,j)=>`<div class="ainp"><span class="albl">${r}</span><input type="number" id="av${j}" value="${bAvail[j]||0}" min="0" max="20" style="width:44px" oninput="bAvail[${j}]=parseInt(this.value)||0;compNeed()"/></div>`).join('');
+  let ah=hdr,mh=hdr;
+  for(let i=0;i<bP;i++){
+    ah+=`<tr><td style="font-weight:500;color:var(--purple-light)">P${i}</td>`;
+    mh+=`<tr><td style="font-weight:500;color:var(--purple-light)">P${i}</td>`;
+    for(let j=0;j<bR;j++){
+      ah+=`<td><input type="number" id="al${i}_${j}" value="${bAlloc[i][j]||0}" min="0" max="20" oninput="bAlloc[${i}][${j}]=parseInt(this.value)||0;compNeed()"/></td>`;
+      mh+=`<td><input type="number" id="mx${i}_${j}" value="${bMax[i][j]||0}" min="0" max="20" oninput="bMax[${i}][${j}]=parseInt(this.value)||0;compNeed()"/></td>`;
+    }
+    ah+='</tr>';mh+='</tr>';
+  }
+  document.getElementById('atbl').innerHTML=ah;
+  document.getElementById('mxtbl').innerHTML=mh;
+  compNeed();
+}
+function compNeed(){
+  const rl=Array.from({length:bR},(_,i)=>String.fromCharCode(65+i));
+  let h='<tr><th>P</th>'+rl.map(r=>`<th>${r}</th>`).join('')+'</tr>';
+  for(let i=0;i<bP;i++){
+    h+=`<tr><td style="font-weight:500;color:var(--purple-light)">P${i}</td>`;
+    for(let j=0;j<bR;j++){const n=(bMax[i][j]||0)-(bAlloc[i][j]||0);h+=`<td style="color:${n<0?'var(--red)':'var(--text2)'}">${n}</td>`;}
+    h+='</tr>';
+  }
+  document.getElementById('ntbl').innerHTML=h;
+}
+function syncBInputs(){
+  for(let i=0;i<bP;i++)for(let j=0;j<bR;j++){bAlloc[i][j]=parseInt(document.getElementById(`al${i}_${j}`)?.value)||0;bMax[i][j]=parseInt(document.getElementById(`mx${i}_${j}`)?.value)||0;}
+  for(let j=0;j<bR;j++)bAvail[j]=parseInt(document.getElementById(`av${j}`)?.value)||0;
+}
+function safetyCheck(){
+  syncBInputs();
+  const need=bAlloc.map((a,i)=>a.map((v,j)=>(bMax[i][j]||0)-v));
+  let work=[...bAvail],finish=Array(bP).fill(false),seq=[],log2=[];let ch=true;
+  while(ch){ch=false;for(let i=0;i<bP;i++){if(!finish[i]&&need[i].every((v,j)=>v<=work[j])){log2.push({p:i,need:need[i].slice(),wb:work.slice()});for(let j=0;j<bR;j++)work[j]+=bAlloc[i][j];finish[i]=true;seq.push(i);ch=true;}}}
+  return{safe:finish.every(Boolean),seq,log:log2,finish};
+}
+function runB(){
+  const{safe,seq,log:slog}=safetyCheck();
+  const res=document.getElementById('bres');res.style.display='block';
+  const rl=Array.from({length:bR},(_,i)=>String.fromCharCode(65+i));
+  let h=`<div style="font-size:13px;font-weight:600;color:${safe?'var(--green)':'var(--red)'};margin-bottom:8px">${safe?'✓ Safe state — safe sequence found':'✗ Unsafe state — deadlock possible'}</div>`;
+  if(safe){h+='<div style="font-size:11px;color:var(--text3);margin-bottom:5px">Execution order:</div><div class="sseq">';seq.forEach((p,i)=>{h+=`<span class="snode">P${p}</span>`;if(i<seq.length-1)h+='<span class="sarrow">→</span>';});h+='</div>';}
+  h+='<div class="slog">';
+  slog.forEach(s=>{h+=`<div class="sitem ok">P${s.p}: need[${s.need.map((v,j)=>rl[j]+':'+v)}] ≤ work[${s.wb}] → granted, work←[${s.wb.map((w,j)=>w+bAlloc[s.p][j])}]</div>`;});
+  if(!safe)h+=`<div class="sitem err">No process can proceed — UNSAFE state</div>`;
+  h+='</div>';
+  res.innerHTML=h;
+  log(`Banker's: ${safe?'SAFE, sequence P'+seq.join('→P'):'UNSAFE — deny request'}`  ,safe?'s':'d');
+  // Show RAG snapshot in banker's tab after running safety algo
+  setTimeout(()=>renderBankersRAG('b-rag-svg','b-rag-container',S.edges,S.cycleNodes,S.cycleEdges,'RAG Snapshot — current system state'),100);
+}
+function stepB(){
+  if(bStepIdx===0){const r=safetyCheck();bStepFull=r.log;document.getElementById('bres').style.display='block';document.getElementById('bres').innerHTML='<div style="font-size:12px;color:var(--text2);margin-bottom:8px">Stepping through algorithm...</div><div class="slog" id="bslog"></div>';}
+  if(bStepIdx<bStepFull.length){
+    const s=bStepFull[bStepIdx];
+    const d=document.createElement('div');d.className='sitem ok';
+    d.textContent=`Step ${bStepIdx+1}: P${s.p} — need[${s.need}] ≤ work[${s.wb}] → run, reclaim alloc`;
+    document.getElementById('bslog')?.appendChild(d);bStepIdx++;
+    if(bStepIdx>=bStepFull.length){const d2=document.createElement('div');d2.className='sitem ok';d2.textContent='All processes can finish — SAFE STATE ✓';document.getElementById('bslog')?.appendChild(d2);bStepIdx=0;}
+  }else bStepIdx=0;
+}
+
+// ─── EDGE MODE ────────────────────────────────────────────────
+function toggleEdge(){
+  edgeMode=!edgeMode;edgeSrc=null;
+  const btn=document.getElementById('emb'),hint=document.getElementById('ehint');
+  if(edgeMode){btn.className='btn btn-a';btn.textContent='Edge mode ON — click source';hint.style.display='block';log('Edge mode: click source node on canvas','i');}
+  else{btn.className='btn btn-a';btn.textContent='Click nodes on canvas';hint.style.display='none';}
+}
+function handleNodeClick(ev,d){
+  if(!edgeMode)return;ev.stopPropagation();
+  if(!edgeSrc){edgeSrc=d;const n=(S.procs[d.id]||S.ress[d.id])?.name;document.getElementById('emb').textContent=`Source: ${n} — click target`;log(`Source: ${n}`,'i');}
+  else{
+    if(edgeSrc.id===d.id){edgeSrc=null;return;}
+    const sn=(S.procs[edgeSrc.id]||S.ress[edgeSrc.id])?.name,tn=(S.procs[d.id]||S.ress[d.id])?.name;
+    document.getElementById('m-einfo').textContent=`${sn} → ${tn}`;
+    const sel=document.getElementById('m-etype');sel.value=S.ress[edgeSrc.id]?'assign':'request';
+    const sid=edgeSrc.id,tid=d.id;
+    document.getElementById('m-confirm').onclick=()=>{addEdge(sid,tid,document.getElementById('m-etype').value);closeModal();};
+    document.getElementById('emodal').classList.add('on');
+    edgeSrc=null;toggleEdge();
+  }
+}
+function closeModal(){document.getElementById('emodal').classList.remove('on');}
+
+// ─── SCENARIOS ───────────────────────────────────────────────
+function clearAll(){S={procs:{},ress:{},assigns:{},reqs:{},edges:[],cycleNodes:[],cycleEdges:[],dlActive:false,dlPids:[]};nodePositions={};clearHL(true);updateNL();renderG();updStatus();}
+
+function loadScene(n){
+  clearAll();if(n==='clear')return;
+  if(n==='dl3'){
+    const[p1,p2,p3]=[gid('p'),gid('p'),gid('p')],[r1,r2,r3]=[gid('r'),gid('r'),gid('r')];
+    S.procs={[p1]:{name:'P1',state:'running',priority:3},[p2]:{name:'P2',state:'running',priority:3},[p3]:{name:'P3',state:'running',priority:3}};
+    S.ress={[r1]:{name:'R1',instances:1,available:0},[r2]:{name:'R2',instances:1,available:0},[r3]:{name:'R3',instances:1,available:0}};
+    S.reqs={[p1]:[r2],[p2]:[r3],[p3]:[r1]};S.assigns={[r1]:[p1],[r2]:[p2],[r3]:[p3]};
+    S.edges=[{s:r1,t:p1,type:'assign'},{s:r2,t:p2,type:'assign'},{s:r3,t:p3,type:'assign'},{s:p1,t:r2,type:'request'},{s:p2,t:r3,type:'request'},{s:p3,t:r1,type:'request'}];
+    log('Scenario: 3-process circular deadlock','i');
+  }else if(n==='dining'){
+    const pids=[],rids=[];
+    for(let i=0;i<5;i++){const id=gid('p');pids.push(id);S.procs[id]={name:`Ph${i+1}`,state:'running',priority:3};}
+    for(let i=0;i<5;i++){const id=gid('r');rids.push(id);S.ress[id]={name:`F${i+1}`,instances:1,available:0};S.assigns[id]=[];}
+    for(let i=0;i<5;i++)S.reqs[pids[i]]=[];
+    for(let i=0;i<5;i++){S.assigns[rids[i]]=[pids[i]];S.reqs[pids[i]]=[rids[(i+1)%5]];S.edges.push({s:rids[i],t:pids[i],type:'assign'},{s:pids[i],t:rids[(i+1)%5],type:'request'});}
+    log('Scenario: Dining Philosophers (5-way deadlock)','i');
+  }else if(n==='safe'){
+    const[p1,p2,p3]=[gid('p'),gid('p'),gid('p')],[r1,r2]=[gid('r'),gid('r')];
+    S.procs={[p1]:{name:'P1',state:'running',priority:3},[p2]:{name:'P2',state:'running',priority:3},[p3]:{name:'P3',state:'running',priority:3}};
+    S.ress={[r1]:{name:'R1',instances:2,available:1},[r2]:{name:'R2',instances:1,available:0}};
+    S.reqs={[p1]:[]  ,[p2]:[r1],[p3]:[]};S.assigns={[r1]:[p1],[r2]:[p3]};
+    S.edges=[{s:r1,t:p1,type:'assign'},{s:r2,t:p3,type:'assign'},{s:p2,t:r1,type:'request'}];
+    log('Scenario: Safe state — no circular wait','i');
+  }
+  updateNL();renderG();updStatus();
+}
+
+// ─── UI ──────────────────────────────────────────────────────
+function updateNL(){
+  let h='';
+  for(const[id,p]of Object.entries(S.procs)){const ic=S.cycleNodes.includes(id);h+=`<div class="nitem ${ic?'dl':''}"><span class="nbadge nbp">${p.name[0]}</span><span class="nname">${p.name}</span><span class="ninfo">pri:${p.priority}</span><button class="delbtn" onclick="delNode('${id}')">×</button></div>`;}
+  for(const[id,r]of Object.entries(S.ress)){const ic=S.cycleNodes.includes(id);h+=`<div class="nitem ${ic?'dl':''}"><span class="nbadge nbr">${r.name[0]}</span><span class="nname">${r.name}</span><span class="ninfo">${r.available}/${r.instances}</span><button class="delbtn" onclick="delNode('${id}')">×</button></div>`;}
+  document.getElementById('nlist').innerHTML=h||'<div style="font-size:11px;color:var(--text3);text-align:center;padding:10px">No nodes yet</div>';
+}
+
+function showBanner(type,msg=''){
+  document.getElementById('dbanner').style.display='none';document.getElementById('sbanner').style.display='none';
+  if(type==='d'){document.getElementById('dmsg').textContent=msg||'Deadlock detected!';document.getElementById('dbanner').style.display='flex';setTimeout(()=>document.getElementById('dbanner').style.display='none',5000);}
+  else{document.getElementById('sbanner').style.display='flex';setTimeout(()=>document.getElementById('sbanner').style.display='none',3000);}
+}
+function clearHL(silent){
+  S.cycleNodes=[];S.cycleEdges=[];document.getElementById('dbanner').style.display='none';document.getElementById('sbanner').style.display='none';
+  if(!silent)renderG();
+}
+function updStatus(s){
+  const dot=document.getElementById('sdot'),txt=document.getElementById('stxt');
+  if(s==='dead'){dot.className='sdot dead';txt.textContent='Deadlock detected';}
+  else if(s==='safe'){dot.className='sdot safe';txt.textContent='Safe state';}
+  else{dot.className='sdot';txt.textContent='Ready';}
+}
+function resetSim(){if(sim)sim.alpha(1).restart();}
+
+function showTT(ev,d){
+  const tt=document.getElementById('tt');
+  if(d.type==='p'){const p=S.procs[d.id];tt.innerHTML=`<strong style="color:var(--text)">${p.name}</strong><br/>Priority: ${p.priority}<br/>Waiting for: ${(S.reqs[d.id]||[]).map(r=>S.ress[r]?.name).join(', ')||'nothing'}`;}
+  else{const r=S.ress[d.id];tt.innerHTML=`<strong style="color:var(--text)">${r.name}</strong><br/>Instances: ${r.instances}<br/>Available: ${r.available}<br/>Held by: ${(S.assigns[d.id]||[]).map(p=>S.procs[p]?.name).join(', ')||'none'}`;}
+  tt.style.display='block';tt.style.left=(ev.clientX+12)+'px';tt.style.top=(ev.clientY-8)+'px';
+}
+function hideTT(){document.getElementById('tt').style.display='none';}
+
+function log(msg,type='n'){
+  const a=document.getElementById('larea');
+  const d=document.createElement('div');
+  const t=new Date().toTimeString().split(' ')[0];
+  const cls={i:'li',s:'ls',d:'ld',w:'lw',n:'ln'}[type]||'ln';
+  d.className=`lentry ${cls}`;d.innerHTML=`<span class="lt">${t}</span><br/>${msg}`;
+  a.appendChild(d);a.scrollTop=a.scrollHeight;
+}
+function clearLog(){document.getElementById('larea').innerHTML='';}
+
+function showPage(name,btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.htab').forEach(t=>t.classList.remove('on'));
+  document.getElementById(`page-${name}`).classList.add('on');
+  btn.classList.add('on');
+  if(name==='recovery')updRecovery();
+  if(name==='bankers'){
+    if(!document.getElementById('atbl').innerHTML)loadBex();
+    if(S._autoB)setTimeout(showBankersAutoResult,100);
+  }
+}
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){if(edgeMode)toggleEdge();closeModal();}
+});
+
+window.addEventListener('load',()=>{
+  initD3();loadBex();
+  log("DeadlockOS ready. Try 'Load 3-process deadlock' scenario.",'i');
+  window.addEventListener('resize',()=>{if(sim)sim.force('center',d3.forceCenter(GW()/2,GH()/2));});
+});
+</script>
+</body>
+</html>
